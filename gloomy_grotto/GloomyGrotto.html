@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+    <title>The Gloomy Grotto</title>
+    <script type="text/javascript" src="./libs/three.js"></script>
+    <script src="http://mrdoob.github.com/three.js/examples/fonts/helvetiker_regular.typeface.js"></script>
+    <script type="text/javascript" src="./libs/jquery-1.9.0.js"></script>
+    <style>
+        body{
+            /* set margin to 0 and overflow to hidden, to go fullscreen */
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="WebGL-output"></div>
+
+<script type="text/javascript">
+    /*
+     *                  ***The Gloomy Grotto***
+     * 
+     * By Abdullah Akram Ansari
+     *
+     * WASD - movement
+     * E - Shoot bullet
+     * Q - Set trap
+     * 
+     * Avoid purple void zones on the ground, bullets from the boss and minions walking towards you.
+     * Use your energy (once it's full) to shoot a bullet at the boss or lay a trap for the minions.
+     * Traps work on minions only. Player bullets will always be directed towards the boss.
+     *
+     */
+    
+    function Delta(x, y, z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+    }
+    
+    function Player(playerMesh) {
+        this.mesh = playerMesh;
+        this.hp = 25;
+        this.energy = 0;
+    }
+    
+    function Boss(bossMesh) {
+        this.mesh = bossMesh;
+        this.hp = 60;
+    }
+    
+    function Minion(minionMesh, delta, speed) {
+        this.mesh = minionMesh;
+        this.delta = delta;
+        this.speed = speed;
+        this.hp = 1;
+    }
+    
+    function Bullet(bulletMesh, delta, side) {
+        this.mesh = bulletMesh;
+        this.delta = delta;
+        this.side = side;
+    }
+    
+    function VoidZone(zoneMesh) {
+        this.mesh = zoneMesh;
+        this.timeRemaining = 180;
+    }
+    
+    var PLAYER = null;
+    var BOSS = null;
+    var SCENE = null;
+    var RENDERER = null;
+    var CAMERA = null;
+    
+    var FOLLOW_PLAYER = false;
+    var DEFAULT_CREATED = false;
+    
+    var PLAYER_HEALTHBAR = null;
+    var PLAYER_ENERGYBAR = null;
+    var BOSS_HEALTHBAR = null;
+    
+    var ENERGY_STATUSTEXT = null;
+    var STATUSTEXT_PRESENT = false;
+    
+    var PLAYER_RADIUS = 4;
+    var BOSS_RADIUS = 10;
+    var MINION_RADIUS = 3;
+    var PROJECTILE_RADIUS = 1;
+    var SPELL_RADIUS = 4;
+    var COLLISSION_OFFSET = 0.5;
+    
+    var PLAYER_SPEED = 0.50;
+    var MAX_ENERGY = 100;
+    
+    var TRAP_RADIUS = 5;
+    var TRAP_RING_RADIUS = 0.5;
+    var TRAP_TIME = 300;
+    
+    var BULLET_COUNTER = 0;
+    var SPAWN_BULLET_WHEN = 120;
+    var BULLET_SIDE = {
+        PLAYER : 1,
+        BOSS : 2
+    }
+    
+    var MINION_COUNTER = 0;
+    var SPAWN_MINION_WHEN = 160;
+    var NUMBER_OF_MINONS = 1;
+    
+    var SPELL_COUNTER = 0;
+    var CAST_SPELL_WHEN = 140;
+    var NUMBER_OF_SPELLS = 3;
+    
+    var PROJECTILE_LIST = [];
+    var MINION_LIST = [];
+    var SPELL_LIST = [];
+    var TRAP_LIST = [];
+    
+    var CONTINUE = true;
+    var KEY_LIST = [];
+    var KEY = {
+        W: 87,
+        A: 65,
+        S: 83,
+        D: 68,
+        Q: 81,
+        Z: 90,
+        E: 69
+    }
+    
+    var GRAPHICAL_DATA = null;
+    function GraphicalData() {
+        this.playerHealthBarMaterial = new THREE.MeshBasicMaterial({ color: 0x7fff00 });
+        this.bossHealthBarMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        this.energyBarMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        
+        this.bulletGeometry = new THREE.SphereGeometry(PROJECTILE_RADIUS, 20, 20);
+        this.bossBulletMaterial = new THREE.MeshLambertMaterial({ color: 0x369de1 });
+        this.playerBulletMaterial = new THREE.MeshLambertMaterial({ color: 0xd3d3d3 });
+        
+        this.minionGeometry = new THREE.SphereGeometry(MINION_RADIUS, 20, 20);
+        this.minionMaterial = new THREE.MeshLambertMaterial({ color: 0x663399 });
+            
+        this.spellGeometry = new THREE.CircleGeometry(SPELL_RADIUS, 32);
+        this.spellMaterial = new THREE.MeshBasicMaterial({ color: 0x551A8B });
+        
+        this.trapGeometry = new THREE.TorusGeometry(TRAP_RADIUS, TRAP_RING_RADIUS, 16, 100);
+        this.trapMaterial = new THREE.MeshLambertMaterial({ color: 0xff6600 });
+    }
+    
+    var COLLISSION_DATA = null;
+    function CollissionData() {
+        this.playerBulletHitMinDistance = (PROJECTILE_RADIUS + PLAYER_RADIUS - COLLISSION_OFFSET),
+        this.playerMinionHitMinDistance = (MINION_RADIUS + PLAYER_RADIUS - COLLISSION_OFFSET),
+        this.minionTrapHitMinDistance = (TRAP_RADIUS - (2* COLLISSION_OFFSET)),
+        this.bossBulletHitMinDistance = (BOSS_RADIUS - (2 * PROJECTILE_RADIUS)),
+        this.playerSpellHitMinDistance = (SPELL_RADIUS + PLAYER_RADIUS - (3 * COLLISSION_OFFSET));
+    }
+    
+    function setupScene() {
+        SCENE = new THREE.Scene();
+        
+        RENDERER = new THREE.WebGLRenderer();
+        RENDERER.setClearColorHex(0xEEEEEE, 1.0);
+        RENDERER.setSize(window.innerWidth, window.innerHeight);
+         $("#WebGL-output").append(RENDERER.domElement);
+        
+        var planeGeometry = new THREE.PlaneGeometry(100,150,1,1);
+        var planeMaterial = new THREE.MeshLambertMaterial({color: 0x00ff00});
+        var plane = new THREE.Mesh(planeGeometry,planeMaterial);
+        plane.receiveShadow  = true; 
+        plane.rotation.x= (-0.5 * Math.PI);
+        plane.position.x= 0;
+        plane.position.y= 0;
+        plane.position.z= -30;
+        SCENE.add(plane);
+        
+        var spotLight = new THREE.SpotLight( 0xffffff );
+        spotLight.position.set( 0, 150, 75 );
+        spotLight.castShadow = true;
+        SCENE.add( spotLight );
+        
+        createCamera();
+    }
+    
+    var FOLLOW_Y = 10;
+    var FOLLOW_Z = -10;
+    
+    function createCamera() {
+        CAMERA = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        if(!FOLLOW_PLAYER) {
+            if(!DEFAULT_CREATED) {
+                CAMERA.position.x = 0;
+                CAMERA.position.y = 50;
+                CAMERA.position.z = 100;
+            }
+        }
+        /*
+        else {
+            CAMERA.position.x = PLAYER.position.x;
+            CAMERA.position.y = PLAYER.position.y + FOLLOW_Y;
+            CAMERA.position.y = PLAYER.position.y + FOLLOW_Z;            
+        }*/
+        
+        CAMERA.lookAt(SCENE.position);   
+    }
+    
+    function setupUnits() {
+        var bossSphere = new THREE.Mesh(new THREE.SphereGeometry(BOSS_RADIUS,20,20), new THREE.MeshLambertMaterial({color: 0x663399}));
+        bossSphere.position.x= 0;
+        bossSphere.position.y= 25;
+        bossSphere.position.z= -25;
+        
+        BOSS = new Boss(bossSphere);
+        SCENE.add(BOSS.mesh);
+        
+        var playerSphere = new THREE.Mesh(new THREE.SphereGeometry(PLAYER_RADIUS,20,20), new THREE.MeshLambertMaterial({color: 0xff0000}));
+        playerSphere.position.x= 0;
+        playerSphere.position.y= PLAYER_RADIUS;
+        playerSphere.position.z= 0;
+        
+        PLAYER = new Player(playerSphere);
+        SCENE.add(PLAYER.mesh);
+    }
+    
+    function setupInfo() {
+        var playerTextMesh = new THREE.Mesh(new THREE.TextGeometry("Player HP", { size: 1.5, height: 0, font: "helvetiker" }),
+                                            new THREE.MeshBasicMaterial({color: 0x000000}));
+        playerTextMesh.position.x = -50;
+        playerTextMesh.position.y = 40;
+        playerTextMesh.position.z = 20;
+        playerTextMesh.rotation.y = 0.10;
+        SCENE.add(playerTextMesh);
+        
+        var bossTextMesh = new THREE.Mesh(new THREE.TextGeometry("Boss HP", { size: 1.5, height: 0, font: "helvetiker" }),
+                                            new THREE.MeshBasicMaterial({color: 0x000000}));
+        bossTextMesh.position.x = 40;
+        bossTextMesh.position.y = 40;
+        bossTextMesh.position.z = 20;
+        SCENE.add(bossTextMesh);
+        
+        ENERGY_STATUSTEXT = new THREE.Mesh(new THREE.TextGeometry("Max Energy!", { size: 1.5, height: 0, font: "helvetiker" }),
+                                                new THREE.MeshBasicMaterial({color: 0x000000}));
+        ENERGY_STATUSTEXT.position.x = -3;
+        ENERGY_STATUSTEXT.position.y = -1;
+        ENERGY_STATUSTEXT.position.z = 50;
+        
+        updateInfo();
+    }
+    
+    $(function () {
+        $(document).keydown(function(e) {
+            KEY_LIST[e.which] = true;
+        });
+
+        $(document).keyup(function(e) {
+            KEY_LIST[e.which] = false;
+        });
+        
+        GRAPHICAL_DATA = new GraphicalData();
+        COLLISSION_DATA = new CollissionData();
+        
+        setupScene();
+        setupUnits();
+        setupInfo();
+        render();
+    });
+
+    function render() {
+        //setupCamera();
+        
+        performBossAction();
+        performPlayerAction();
+        
+        updateObjects();
+        updateEnergy();$
+        
+        checkCollissions();
+        checkConditions();
+        
+        clearInfo();
+        updateInfo();
+
+        if(CONTINUE) {
+            requestAnimationFrame(render);
+            RENDERER.render(SCENE, CAMERA);
+        }
+        else {
+            $('#WebGL-output').remove();
+        }
+    }
+    
+    function clearInfo() {
+        SCENE.remove(PLAYER_HEALTHBAR);
+        PLAYER_HEALTHBAR = null;
+        SCENE.remove(BOSS_HEALTHBAR);
+        BOSS_HEALTHBAR = null;
+        SCENE.remove(PLAYER_ENERGYBAR);
+        PLAYER_ENERGYBAR = null;
+        
+        if(PLAYER.energy != MAX_ENERGY && STATUSTEXT_PRESENT) {
+            SCENE.remove(ENERGY_STATUSTEXT);
+            STATUSTEXT_PRESENT = false;
+        }
+    }
+    
+    function updateInfo() {
+        PLAYER_HEALTHBAR = new THREE.Mesh(new THREE.PlaneGeometry(3, PLAYER.hp/25 * 10), GRAPHICAL_DATA.playerHealthBarMaterial);
+        PLAYER_HEALTHBAR.position.x = -45;
+        PLAYER_HEALTHBAR.position.y = 37;
+        PLAYER_HEALTHBAR.position.z = 20;
+        PLAYER_HEALTHBAR.rotation.y = 0.50;
+        PLAYER_HEALTHBAR.rotation.z = 1.49;
+        SCENE.add(PLAYER_HEALTHBAR);
+        
+        BOSS_HEALTHBAR = new THREE.Mesh(new THREE.PlaneGeometry(3, BOSS.hp/60 * 10), GRAPHICAL_DATA.bossHealthBarMaterial);
+        BOSS_HEALTHBAR.position.x = 45;
+        BOSS_HEALTHBAR.position.y = 37;
+        BOSS_HEALTHBAR.position.z = 20;
+        BOSS_HEALTHBAR.rotation.z = 1.57;
+        SCENE.add(BOSS_HEALTHBAR);
+        
+        PLAYER_ENERGYBAR = new THREE.Mesh(new THREE.PlaneGeometry(3, PLAYER.energy/100 * 10), GRAPHICAL_DATA.energyBarMaterial);
+        PLAYER_ENERGYBAR.position.x = -10;
+        PLAYER_ENERGYBAR.position.y = 0;
+        PLAYER_ENERGYBAR.position.z = 50;
+        PLAYER_ENERGYBAR.rotation.z = 1.57;
+        SCENE.add(PLAYER_ENERGYBAR);
+        
+        if(PLAYER.energy == MAX_ENERGY && !STATUSTEXT_PRESENT) {
+            SCENE.add(ENERGY_STATUSTEXT);
+            STATUSTEXT_PRESENT = true;
+        }
+    }
+    
+    function calculateDelta(begin, end) {
+        var diffX = Math.abs(begin.position.x - end.position.x);
+        var diffY = Math.abs(begin.position.y - end.position.y);
+        var diffZ = Math.abs(begin.position.z - end.position.z);
+
+        var tempLargest = (diffX > diffY ? diffX : diffY);
+        var largest = (tempLargest > diffZ ? tempLargest : diffZ);
+
+        return new Delta((begin.position.x - end.position.x)/largest, (begin.position.y - end.position.y)/largest, (begin.position.z - end.position.z)/largest);
+    }
+    
+    function distanceBetween(x1, x2, y1, y2) {
+        return Math.sqrt(Math.pow((x2 - x1), 2) + Math.pow((y2 - y1), 2));
+    }
+    
+    //offset uniform for all sides (a sphere/circle's radius, cube's edge)
+    function inGameBounds(x, y, z, offset) {
+        var inBounds = true;
+        if(x + offset >= 50 || x <= -50 + offset) { inBounds = false; }
+        if(y >= 30 || y <= 0) { inBounds = false; }
+        if(z + offset >= 49 || z <= -103 + offset) { inBounds = false; } //The z bounds have been modified for visual alignment, not mathematical exactness
+
+        return inBounds;
+    }
+    
+    function checkConditions() {
+        if(BOSS.hp <= 0) {
+            CONTINUE = false;
+            alert('You have defeated the boss!');
+        }
+        if(PLAYER.hp <= 0) {
+            CONTINUE = false;
+            alert('You have died! Please try again!');
+        }
+    }
+    
+    function performPlayerAction() {
+        var newX = 0;
+        var newZ = 0;
+        if(KEY_LIST[KEY.W]) {
+            newZ = -1 * PLAYER_SPEED;
+        }
+        if(KEY_LIST[KEY.A]) {
+            newX = -1 * PLAYER_SPEED;
+        }
+        if(KEY_LIST[KEY.S]) {
+            newZ = PLAYER_SPEED;
+        }
+        if(KEY_LIST[KEY.D]) {
+            newX = PLAYER_SPEED;
+        }
+        
+        if(KEY_LIST[KEY.Z]) {
+            FOLLOW_PLAYER = !FOLLOW_PLAYER;
+            DEFAULT_CREATED = !DEFAULT_CREATED;
+        }
+        
+        if(inGameBounds(PLAYER.mesh.position.x + newX, PLAYER.mesh.position.y, PLAYER.mesh.position.z + newZ, PLAYER_RADIUS) == true) {
+            PLAYER.mesh.position.x += newX;
+            PLAYER.mesh.position.z += newZ;
+        }
+        
+        if(PLAYER.energy == MAX_ENERGY) {
+            if(KEY_LIST[KEY.Q]) {
+                setMinionTrap();
+            }
+            if(KEY_LIST[KEY.E]) {
+                spawnPlayerBullet();
+            }
+        }
+    }
+    
+    function performBossAction() {
+        spawnBossBullet();
+        
+        if(BOSS.hp > 40 || BOSS.hp < 20) {
+            castSpell();
+        }
+        
+        if(BOSS.hp < 40) {
+            spawnMinions();
+        }
+    }
+    
+    function updateEnergy() {
+        if(PLAYER.energy < MAX_ENERGY) {
+            PLAYER.energy++;
+        }
+    }
+    
+    function spawnBossBullet() {
+        if(BULLET_COUNTER == SPAWN_BULLET_WHEN) {
+            var bulletMesh = new THREE.Mesh(GRAPHICAL_DATA.bulletGeometry, GRAPHICAL_DATA.bossBulletMaterial);
+            bulletMesh.position.x = BOSS.mesh.position.x;
+            bulletMesh.position.y = BOSS.mesh.position.y;
+            bulletMesh.position.z = BOSS.mesh.position.z;
+
+            SCENE.add(bulletMesh);
+            PROJECTILE_LIST.push(new Bullet(bulletMesh, calculateDelta(bulletMesh, PLAYER.mesh), BULLET_SIDE.BOSS));
+
+            BULLET_COUNTER = 0;
+        }
+
+        BULLET_COUNTER++;
+    }
+
+    function updateObjects() {
+        for(var i = 0; i < PROJECTILE_LIST.length; i++) {
+            //Case for detecting if a player's bullet hit the boss is irrelevant, because the
+            //Boss is stationary, player bullets will always hit and be removed through collission detection
+            if(PROJECTILE_LIST[i].mesh.position.y > 0) {
+                PROJECTILE_LIST[i].mesh.position.x -= PROJECTILE_LIST[i].delta.x;
+                PROJECTILE_LIST[i].mesh.position.y -= PROJECTILE_LIST[i].delta.y;
+                PROJECTILE_LIST[i].mesh.position.z -= PROJECTILE_LIST[i].delta.z;
+            }
+            else {
+                SCENE.remove(PROJECTILE_LIST[i].mesh);
+                PROJECTILE_LIST.splice(i, 1);
+            }
+        }
+        
+        for(var j = 0; j < SPELL_LIST.length; j++) {
+            if(SPELL_LIST[j].timeRemaining > 0) {
+                SPELL_LIST[j].timeRemaining--;
+            } 
+            else {
+                SCENE.remove(SPELL_LIST[j].mesh);
+                SPELL_LIST.splice(j, 1);
+            }
+        }
+        
+        for(var k = 0; k < TRAP_LIST.length; k++) {
+            if(TRAP_LIST[k].timeRemaining > 0) {
+                TRAP_LIST[k].timeRemaining--;
+            } 
+            else {
+                SCENE.remove(TRAP_LIST[k].mesh);
+                TRAP_LIST.splice(k, 1);
+            }
+        }
+        
+        moveMinions();
+    }
+
+    function castSpell() {
+        if(SPELL_COUNTER == CAST_SPELL_WHEN) {
+            var circle = null;
+            var valid = false;
+            var circleX = 0, circleZ = 0;
+
+            for(var i = 0; i < NUMBER_OF_SPELLS; i++) {
+                circle = new THREE.Mesh(GRAPHICAL_DATA.spellGeometry, GRAPHICAL_DATA.spellMaterial);
+                circle.rotation.x = -0.5*Math.PI;
+                circle.position.y = 0.5;
+                valid = false;
+                
+                while(!valid) {
+                    circleX = Math.random() * 15 * (Math.floor(Math.random() * 2) == 1 ? -1 : 1) + PLAYER.mesh.position.x;
+                    circleZ = Math.random() * 15 * (Math.floor(Math.random() * 2) == 1 ? -1 : 1) + PLAYER.mesh.position.z;
+                    
+                    if(inGameBounds(circleX, 0.5, circleZ, SPELL_RADIUS) == true) {
+                        valid = true;
+                    }
+                }
+                circle.position.x = circleX;
+                circle.position.z = circleZ;
+                
+                SCENE.add(circle);
+                SPELL_LIST.push(new VoidZone(circle));
+            }
+
+            SPELL_COUNTER = 0;
+        }
+
+        SPELL_COUNTER++;
+    }
+
+    function spawnMinions() {
+        if(MINION_COUNTER == SPAWN_MINION_WHEN) {
+            var minionMesh = new THREE.Mesh(GRAPHICAL_DATA.minionGeometry, GRAPHICAL_DATA.minionMaterial);
+            minionMesh.position.x = BOSS.mesh.position.x;
+            minionMesh.position.y = MINION_RADIUS;
+            minionMesh.position.z = BOSS.mesh.position.z;
+            SCENE.add(minionMesh);
+
+            var speed = 0, speedSeed = Math.floor(Math.random() * 3);
+            switch(speedSeed) {
+                    case 0:
+                        speed = 0.25;
+                    break;
+                    case 1:
+                        speed = 0.33;
+                    break;
+                    case 2:
+                        speed = 0.40;
+                    break;
+            }
+            MINION_LIST.push(new Minion(minionMesh, calculateDelta(minionMesh, PLAYER.mesh), speed));
+            MINION_COUNTER = 0;
+        }
+
+        MINION_COUNTER++;
+    }
+
+    function moveMinions() {
+        var newX, newY, newZ, valid;
+        for(var i = 0; i < MINION_LIST.length; i++) {
+            if(MINION_LIST[i].hp > 0) {                
+                valid = false;
+                while(!valid) {
+                    newX = MINION_LIST[i].delta.x * MINION_LIST[i].speed;
+                    newY = MINION_LIST[i].delta.y * MINION_LIST[i].speed;
+                    newZ = MINION_LIST[i].delta.z * MINION_LIST[i].speed;
+                    
+                    if(inGameBounds(MINION_LIST[i].mesh.position.x - newX, MINION_LIST[i].mesh.position.y - newY, 
+                                    MINION_LIST[i].mesh.position.z - newZ, MINION_RADIUS) == true) {
+                        valid = true;
+                    }
+                    else { 
+                         MINION_LIST[i].delta = calculateDelta(MINION_LIST[i].mesh, PLAYER.mesh);
+                    }
+                }
+                
+                MINION_LIST[i].mesh.position.x -= newX;
+                MINION_LIST[i].mesh.position.y -= newY;
+                MINION_LIST[i].mesh.position.z -= newZ;
+            }
+            else {
+                SCENE.remove(MINION_LIST[i].mesh);
+                MINION_LIST.splice(i, 1);
+            }
+        }
+    }
+
+    function spawnPlayerBullet() {
+        PLAYER.energy = 0;
+        var shotMesh = new THREE.Mesh(new THREE.SphereGeometry(PROJECTILE_RADIUS, 20, 20), GRAPHICAL_DATA.playerBulletMaterial);
+        shotMesh.position.x = PLAYER.mesh.position.x + 1;
+        shotMesh.position.z = PLAYER.mesh.position.z + 1;
+        shotMesh.position.y = PLAYER.mesh.position.y + 1;
+
+        SCENE.add(shotMesh);
+        PROJECTILE_LIST.push(new Bullet(shotMesh, calculateDelta(shotMesh, BOSS.mesh), BULLET_SIDE.PLAYER));
+    }
+
+    function setMinionTrap() {
+        PLAYER.energy = 0;
+        var trapMesh = new THREE.Mesh(GRAPHICAL_DATA.trapGeometry, GRAPHICAL_DATA.trapMaterial);
+        trapMesh.rotation.x = -0.5*Math.PI;
+        trapMesh.position.x = PLAYER.mesh.position.x;
+        trapMesh.position.y = 0;
+        trapMesh.position.z = PLAYER.mesh.position.z;
+
+        var trap = new VoidZone(trapMesh);
+        trap.timeRemaining = TRAP_TIME;
+        TRAP_LIST.push(trap);
+        SCENE.add(trapMesh);
+    }
+    
+    function checkCollissions() {
+        var i, j, k, doRemove;
+
+        //Check Minion to Trap/Player Collisions
+        for(i = 0; i < MINION_LIST.length; i++) {
+            if(distanceBetween(MINION_LIST[i].mesh.position.x, PLAYER.mesh.position.x, MINION_LIST[i].mesh.position.z, PLAYER.mesh.position.z) 
+               < COLLISSION_DATA.playerMinionHitMinDistance) {
+                PLAYER.hp -= 0.05;
+            }
+            
+            for(j = 0; j < TRAP_LIST.length; j++) {
+                if(distanceBetween(MINION_LIST[i].mesh.position.x, TRAP_LIST[j].mesh.position.x, MINION_LIST[i].mesh.position.z, TRAP_LIST[j].mesh.position.z) 
+                   < COLLISSION_DATA.minionTrapHitMinDistance) {
+                    MINION_LIST[i].hp -= 1;
+                }                
+            }
+        }
+
+        //Check Bullet to Boss/Player Collission
+        for(j = 0; j < PROJECTILE_LIST.length; j++) {
+            doRemove = false;
+            switch(PROJECTILE_LIST[j].side) {
+                    case BULLET_SIDE.PLAYER:
+                        if(distanceBetween(PROJECTILE_LIST[j].mesh.position.x, BOSS.mesh.position.x, PROJECTILE_LIST[j].mesh.position.z, BOSS.mesh.position.z)
+                           < COLLISSION_DATA.bossBulletHitMinDistance) {
+                            BOSS.hp--;
+                            doRemove = true;
+                        }
+                    break;
+                    
+                    case BULLET_SIDE.BOSS:
+                        if(Math.abs(PROJECTILE_LIST[j].mesh.position.y - PLAYER.mesh.position.y) < COLLISSION_DATA.playerBulletHitMinDistance) {
+                            if(distanceBetween(PROJECTILE_LIST[j].mesh.position.x, PLAYER.mesh.position.x, PROJECTILE_LIST[j].mesh.position.z,
+                                               PLAYER.mesh.position.z) < COLLISSION_DATA.playerBulletHitMinDistance) {
+                                PLAYER.hp--;
+                                doRemove = true;
+                            }
+                        }
+                    break;
+            }
+            
+            if(doRemove == true) {
+                SCENE.remove(PROJECTILE_LIST[j].mesh);
+                PROJECTILE_LIST.splice(j, 1);
+            }
+        }
+
+        //Check Void Zone Collission
+        for(k = 0; k < SPELL_LIST.length; k++) {
+            if(distanceBetween(SPELL_LIST[k].mesh.position.x, PLAYER.mesh.position.x, SPELL_LIST[k].mesh.position.z, 
+                               PLAYER.mesh.position.z) < COLLISSION_DATA.playerSpellHitMinDistance) {
+                PLAYER.hp -= 0.02;
+            }
+        }
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<html>
+    <head>
+        <title>JS_SF</title>
+        
+        <style>
+            #titleHeader {
+                position: absolute;
+                left: 30%;
+            }
+            
+            body {
+                background: Grey;
+            }
+            
+            #gameContainer {
+                position: fixed;
+                top: 15%;
+            }
+            
+            .gameCanvas {
+                position: absolute;
+                top: 35px;
+                left: 200px;
+            }
+            
+            .bgImage {
+                top: 0px;
+                background:url(background.png);
+            }
+            
+            #imageDive {
+                position: absolute;
+                top: -1000px;
+            }
+        </style>
+    </head>
+    
+    <body>
+        <div id="imageDive">
+            <img id="enemySheet" src="enemies.jpg"/>
+        </div>
+        
+        <div>
+            <h1 id="titleHeader">*** JavaScript Space Fighter ***</h1>
+        </div>
+        
+        <div id="gameContainer">
+            <canvas id="backgroundCanvas" class="gameCanvas bgImage" width="1000" height="600"></canvas>
+            <canvas id="mainCanvas" class="gameCanvas" width="1000" height="550"></canvas>
+        </div>
+        
+        <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+	    <script src="spaceFighter.js"></script>
+    </body>
+</html>
