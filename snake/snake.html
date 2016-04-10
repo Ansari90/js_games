@@ -1,0 +1,367 @@
+<html>
+    <head>
+        <title>Snake</title>
+        <script type="text/javascript" src="jquery-1.11.3.min.js"></script>
+        <script type="text/javascript">
+            var ctx = null;
+            var INTERVAL_ID = -1;
+            
+            var KEY_LIST = [];
+            var KEY = {
+                W: 87,
+                A: 65,
+                S: 83,
+                D: 68
+            }
+            
+            var CANVAS_EDGE = 500;
+            var MAP_EDGE = 100;
+            var MAP_TO_CANVAS = CANVAS_EDGE/MAP_EDGE;
+            var CONTINUE = true;
+            var SCORE = 0;
+            
+            var SNAKE_COLOR = "#000000";
+            var FOOD_COLOR = "#FF0000";            
+            
+            var FOOD_SQUARES = [];
+            var FOOD_EATEN_COUNT = 0;
+            var FOOD_ON_SCREEN = 10;
+            
+            var INTERVAL = 300;
+            var INCREASE_AT = 2;
+            var INCREASE_BY = 10;
+            var INCREASE_HAPPENED = false;
+            var SNAKE_POINTS = [ {
+                'start' : {
+                    'x' : 45,
+                    'y' : 50
+                },
+                'end' : {
+                    'x' : 55,
+                    'y' : 50
+                }
+            } ];
+            
+            var DIRECTION = "LEFT";
+            var CHANGE = false;
+            
+            function generateFoodCoord() {
+                var isInvalid = true;
+                var x = -1, y = -1;
+                
+                while(isInvalid === true) {
+                    x = getRandomInt(0, MAP_EDGE);
+                    y = getRandomInt(0, MAP_EDGE);
+                    isInvalid = false;
+
+                    SNAKE_POINTS.forEach(function(pointPair, index, snake_points) {
+                        if(doesSegmentCollide(pointPair, x, y)) {
+                            isInvalid = true;
+                        }
+                    });
+                    
+                    FOOD_SQUARES.forEach(function(foodSquare, index, food_squares) {
+                        if(foodSquare.x == x && foodSquare.y == y) {
+                            isInvalid = true;
+                        }
+                    });
+                }
+                
+                return { 'x' : x, 'y' : y }
+            }
+            
+            function doesSegmentCollide(pointPair, x,  y) {
+                var doesCollide = false;
+                
+                if((pointPair.start.x <= x && pointPair.end.x >= x) 
+                   || (pointPair.end.x <= x && pointPair.start.x >= x)) {
+                    if((pointPair.start.y <= y && pointPair.end.y >= y) 
+                       || (pointPair.end.y <= y && pointPair.start.y >= y)) {
+                        doesCollide = true;
+                    }
+                }
+                
+                return doesCollide;
+            }
+            
+            function getRandomInt(min, max) {
+                return Math.floor(Math.random() * (max - min)) + min;
+            }
+            
+            function decreaseTail() {
+                var endPair = SNAKE_POINTS[SNAKE_POINTS.length - 1];
+                var pointsToCheck = {
+                    'p1' : -1,
+                    'p2' : -2
+                }
+                
+                if(FOOD_EATEN_COUNT === 0) {                    
+                    if(endPair.start.x === endPair.end.x) {
+                        if(Math.abs(endPair.start.y - endPair.end.y) > 0) {
+                            if(endPair.start.y > endPair.end.y) {
+                                endPair.end.y++;
+                            } else {
+                                endPair.end.y--;
+                            }
+
+                            pointsToCheck.p1 = endPair.start.y;
+                            pointsToCheck.p2 = endPair.end.y;
+                        }
+                    } else {
+                        if(Math.abs(endPair.start.x - endPair.end.x) > 0) {
+                            if(endPair.start.x > endPair.end.x) {
+                                endPair.end.x++;
+                            } else {
+                                endPair.end.x--;
+                            }
+
+                            pointsToCheck.p1 = endPair.start.x;
+                            pointsToCheck.p2 = endPair.end.x;
+                        }
+                    }
+
+                    if(pointsToCheck.p1 - pointsToCheck.p2 === 0) {
+                        SNAKE_POINTS.pop();
+                    } else {
+                        SNAKE_POINTS[SNAKE_POINTS.length - 1] = endPair;
+                    }
+                } else { 
+                    FOOD_EATEN_COUNT--; 
+                }
+            }
+            
+            //Head increases, tail decreases, everything else remains the same
+            function moveSnake() {
+                decreaseTail();
+                
+                var newX = SNAKE_POINTS[0].start.x, newY = SNAKE_POINTS[0].start.y;
+                var startPoint = { 'x' : newX, 'y' : newY }
+                switch(DIRECTION) {
+                    case "UP":
+                        if(newY - 1 < 0) {
+                            /*
+                            CHANGE = true;
+                            newY = MAP_EDGE - 1;
+                            
+                            startPoint.y = newY;
+                            */
+                            CONTINUE = false;
+                        } else {
+                            newY -= 1;
+                        }
+                        break;
+                    case "DOWN":
+                        if(newY + 1 > MAP_EDGE - 1) {
+                            /*
+                            CHANGE = true;
+                            newY = 0;
+                            
+                            startPoint.y = newY;
+                            */
+                            CONTINUE = false;
+                        } else {
+                            newY += 1;
+                        }
+                        break;
+                    case "LEFT":
+                        if(newX - 1 < 0) {
+                            /*
+                            CHANGE = true;
+                            newX = MAP_EDGE - 1;
+                            
+                            startPoint.x = newX;
+                            */
+                            CONTINUE = false;
+                        } else {
+                            newX -= 1;
+                        }
+                        break;
+                    case "RIGHT":
+                        if(newX + 1> MAP_EDGE - 1) {
+                            /*
+                            CHANGE = true;
+                            newX = 0;
+                            
+                            startPoint.x = newX;
+                            */
+                            CONTINUE = false;
+                        } else {
+                            newX += 1;
+                        }
+                        break;
+                }
+                
+                if(CHANGE === false) {
+                    SNAKE_POINTS[0].start.x = newX;
+                    SNAKE_POINTS[0].start.y = newY;
+                } else {
+                    SNAKE_POINTS.unshift(generateSegment(startPoint, newX, newY));
+                    CHANGE = false;
+                }
+            }
+            
+            function drawObjects() {
+                ctx.clearRect(0, 0, CANVAS_EDGE, CANVAS_EDGE);
+                
+                var width = -1, height = -1;
+                ctx.fillStyle = SNAKE_COLOR;                    
+                SNAKE_POINTS.forEach(function(pointPair, index, snake_points) {
+                    width = Math.abs(pointPair.end.x - pointPair.start.x);
+                    height = Math.abs(pointPair.end.y - pointPair.start.y);
+                    
+                    var x = pointPair.start.x, y = pointPair.start.y;
+                    if(pointPair.start.y === pointPair.end.y) {
+                        if(pointPair.start.x > pointPair.end.x) {
+                            x = pointPair.end.x + 1;
+                            y = pointPair.end.y;
+                        }
+                    }
+                    else {
+                        if(pointPair.start.y > pointPair.end.y) {
+                            x = pointPair.end.x;
+                            y = pointPair.end.y + 1;
+                        }
+                    }
+                    
+                    ctx.fillRect(x * MAP_TO_CANVAS, y * MAP_TO_CANVAS,
+                                 (width === 0 ? 1 : width)  * MAP_TO_CANVAS, (height === 0 ? 1 : height) * MAP_TO_CANVAS);
+                });
+                
+                ctx.fillStyle = FOOD_COLOR;
+                if(FOOD_SQUARES.length < FOOD_ON_SCREEN) {
+                    FOOD_SQUARES.push(generateFoodCoord());
+                }
+                FOOD_SQUARES.forEach(function(foodSquare, index, food_squares) {
+                    ctx.fillRect(foodSquare.x * MAP_TO_CANVAS, foodSquare.y * MAP_TO_CANVAS,
+                                 MAP_TO_CANVAS, MAP_TO_CANVAS);
+                });
+                
+            }
+            
+            function generateSegment(end, x, y) {
+                return {
+                    'start' : {
+                        'x' : x,
+                        'y' : y
+                    },
+                    'end' : {
+                        'x' : end.x,
+                        'y' : end.y
+                    }
+                }
+            }
+            
+            function checkCollissions() {
+                FOOD_SQUARES.forEach(function(foodSquare, index, food_square) {
+                    if(doesSegmentCollide(SNAKE_POINTS[0], foodSquare.x, foodSquare.y) === true) {                        
+                        FOOD_EATEN_COUNT++;
+                        SCORE++;
+                        food_square.splice(index, 1);
+                    }
+                });
+                
+                SNAKE_POINTS.forEach(function(pointPair, index, snake_points) {
+                    if(index != 0) {
+                        if(doesSegmentCollide(pointPair, snake_points[0].start.x, snake_points[0].start.y)) {
+                            CONTINUE = false;
+                        }
+                    }
+                });
+            }
+            
+            function play() {
+                if(CONTINUE === false) {
+                    clearInterval(INTERVAL_ID);
+                    alert("Your Snake DIED! :( \nFinal Score: " + SCORE);
+                } else {                    
+                    updateMove();
+                    moveSnake();
+                    checkCollissions();
+                    
+                    drawObjects();
+                    upgradeSnake();
+                }
+            }
+            
+            function updateMove() {
+                var newDirection = "";
+                
+                if(KEY_LIST[KEY.A] === true) {
+                    newDirection = "LEFT";
+                }
+                
+                if(KEY_LIST[KEY.D] === true) {
+                    newDirection = "RIGHT";
+                }
+                
+                if(KEY_LIST[KEY.W] === true) {
+                    newDirection = "UP";
+                }
+                
+                if(KEY_LIST[KEY.S] === true) {
+                    newDirection = "DOWN";
+                }
+                
+                if(DIRECTION !== newDirection && newDirection.length > 0) {
+                    var changeValid = true;
+                    
+                    if(DIRECTION === "UP" && newDirection === "DOWN") { changeValid = false; }
+                    if(DIRECTION === "DOWN" && newDirection === "UP") { changeValid = false; }
+                    if(DIRECTION === "LEFT" && newDirection === "RIGHT") { changeValid = false; }
+                    if(DIRECTION === "RIGHT" && newDirection === "LEFT") { changeValid = false; }
+                    
+                    if(changeValid === true) {
+                        DIRECTION = newDirection;
+                        CHANGE = true;
+                    }
+                }
+            }
+            
+            function upgradeSnake() {
+                if((INCREASE_HAPPENED === false) && (SCORE !== 0) && (SCORE % INCREASE_AT === 0)) {
+                    INTERVAL -= INCREASE_BY;
+                    INCREASE_HAPPENED = true;
+                    
+                    clearInterval(INTERVAL_ID);                    
+                    INTERVAL_ID = setInterval(play, INTERVAL);
+                } else {
+                    if(SCORE % INCREASE_AT !== 0) {
+                        INCREASE_HAPPENED = false;
+                    }
+                }
+            }
+            
+            function start() {
+                var canvas = document.getElementById('snakeCanvas')
+                canvas.setAttribute('height', CANVAS_EDGE);
+                canvas.setAttribute('width', CANVAS_EDGE);                
+                canvas.style.border = "black 2px solid";
+                canvas.style.background = "#00FF00";
+                
+                ctx = canvas.getContext('2d');
+                drawObjects();
+                
+                INTERVAL_ID = setInterval(play, INTERVAL);
+            }
+            
+            function stop() {
+                clearInterval(INTERVAL_ID);
+            }
+            
+            $(function () {
+                $(document).keydown(function(e) {
+                    KEY_LIST.forEach(function(key, index, key_list) {
+                        key_list[index] = false;
+                    });
+                    
+                    KEY_LIST[e.which] = true;
+                });
+            });
+        </script>
+    </head>
+    <body>
+        <button onclick="start();">Start</button>
+        <button onclick="stop();">Stop</button>
+        <canvas id="snakeCanvas" height="1" width="1"></canvas>
+    </body>
+</html>
